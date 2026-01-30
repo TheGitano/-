@@ -4,6 +4,7 @@ from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 import requests
+import json
 
 # Configurar logging
 logging.basicConfig(
@@ -13,9 +14,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # TU TOKEN AQUÍ
-BOT_TOKEN = "8287248635:AAHVABfsWcqh7t6BuF0oc3DGjd3gF7GAmMQ"
+BOT_TOKEN = "PEGA_TU_TOKEN_AQUI"
 
-# Arte ASCII para el banner
+# Banner
 BANNER = """
 ╔══════════════════════════════════════╗
 ║                                      ║
@@ -59,28 +60,12 @@ MENSAJE_FINAL = """
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
-# Crear teclado con botones
 def crear_menu_principal():
     keyboard = [
-        [InlineKeyboardButton("🔍 BUSCAR ACTIVIDAD ICE", callback_data='menu_buscar')],
+        [InlineKeyboardButton("🔍 BUSCAR ACTIVIDAD ICE AHORA", callback_data='buscar_directo')],
         [InlineKeyboardButton("⚖️ CONOCER MIS DERECHOS", callback_data='menu_derechos')],
         [InlineKeyboardButton("📚 RECURSOS Y AYUDA", callback_data='menu_recursos')],
         [InlineKeyboardButton("📢 COMPARTIR BOT", callback_data='menu_compartir')],
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
-def crear_menu_estados():
-    keyboard = [
-        [InlineKeyboardButton("🌴 California", callback_data='estado_california'),
-         InlineKeyboardButton("🤠 Texas", callback_data='estado_texas')],
-        [InlineKeyboardButton("🗽 New York", callback_data='estado_newyork'),
-         InlineKeyboardButton("🌵 Arizona", callback_data='estado_arizona')],
-        [InlineKeyboardButton("🏔️ Colorado", callback_data='estado_colorado'),
-         InlineKeyboardButton("🌊 Florida", callback_data='estado_florida')],
-        [InlineKeyboardButton("🌲 Washington", callback_data='estado_washington'),
-         InlineKeyboardButton("🏙️ Illinois", callback_data='estado_illinois')],
-        [InlineKeyboardButton("✍️ Escribir otra ubicación", callback_data='escribir_ubicacion')],
-        [InlineKeyboardButton("🔙 Volver al menú", callback_data='volver_menu')]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -88,66 +73,94 @@ def crear_boton_volver():
     keyboard = [[InlineKeyboardButton("🔙 Volver al menú principal", callback_data='volver_menu')]]
     return InlineKeyboardMarkup(keyboard)
 
-# Función para buscar actividad REAL de ICE usando Claude API
-async def buscar_actividad_real(ubicacion):
-    """Busca actividad REAL de ICE usando la API de Claude con web search"""
+# Función para buscar actividad REAL usando web search
+async def buscar_actividad_real(direccion):
+    """Busca actividad REAL de ICE usando búsqueda web"""
     try:
-        prompt = f"""Busca información ACTUALIZADA sobre actividad de ICE en {ubicacion}.
-
-Responde SOLO en este formato JSON (sin texto adicional):
-{{
-    "nivel_riesgo": "BAJO/MEDIO/ALTO",
-    "puede_salir": "SI/NO/CON_PRECAUCION",
-    "ultimo_reporte": "descripción breve del último reporte encontrado o 'No hay reportes recientes'",
-    "distancia_aprox": "distancia aproximada si hay reportes, o 'N/A'",
-    "hora_reporte": "hora del último reporte o 'N/A'",
-    "recomendacion": "consejo específico de 1-2 líneas"
-}}
-
-Busca en iceout.org, deportationtracker.live y otras fuentes comunitarias."""
-
-        response = await requests.post(
+        # Usar la API de Claude con web search
+        response = requests.post(
             "https://api.anthropic.com/v1/messages",
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "anthropic-version": "2023-06-01"
+            },
             json={
                 "model": "claude-sonnet-4-20250514",
-                "max_tokens": 1000,
-                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 2000,
+                "messages": [{
+                    "role": "user",
+                    "content": f"""Busca AHORA MISMO información ACTUALIZADA sobre actividad de ICE cerca de: {direccion}
+
+Busca en iceout.org, deportationtracker.live, redes sociales, noticias locales, reportes comunitarios.
+
+Responde SOLO en formato JSON (sin markdown, sin texto adicional):
+{{
+    "hay_actividad": true/false,
+    "nivel_riesgo": "SEGURO/PRECAUCIÓN/PELIGRO",
+    "puede_salir": "SI/NO/CON_CUIDADO",
+    "ultimo_reporte": "descripción detallada del último reporte o 'Sin actividad reportada en las últimas 48 horas'",
+    "ubicacion_exacta": "dirección/intersección exacta donde se reportó actividad o 'N/A'",
+    "distancia_cuadras": "número de cuadras de distancia o 'N/A'",
+    "hora_reporte": "hora exacta del reporte o 'N/A'",
+    "tipo_operativo": "checkpoint/redada/patrulla/detención o 'N/A'",
+    "arrestos": "SÍ/NO/DESCONOCIDO",
+    "num_arrestos": "número de personas arrestadas o 'N/A'",
+    "vehiculos": "descripción de vehículos ICE vistos o 'N/A'",
+    "recomendacion": "consejo específico de seguridad en 1-2 líneas",
+    "fuente": "de dónde sacaste la información"
+}}"""
+                }],
                 "tools": [{"type": "web_search_20250305", "name": "web_search"}]
             },
-            timeout=30
+            timeout=45
         )
         
         if response.status_code == 200:
             data = response.json()
-            # Extraer el texto de la respuesta
             content = data.get('content', [])
+            
+            # Buscar el texto en la respuesta
+            texto_respuesta = ""
             for item in content:
                 if item.get('type') == 'text':
-                    import json
-                    resultado = json.loads(item['text'])
-                    return resultado
+                    texto_respuesta = item['text']
+                    break
+            
+            # Limpiar y parsear JSON
+            texto_limpio = texto_respuesta.strip()
+            if texto_limpio.startswith('```json'):
+                texto_limpio = texto_limpio[7:]
+            if texto_limpio.startswith('```'):
+                texto_limpio = texto_limpio[3:]
+            if texto_limpio.endswith('```'):
+                texto_limpio = texto_limpio[:-3]
+            
+            resultado = json.loads(texto_limpio.strip())
+            return resultado
         
-        # Si falla, retornar valores por defecto
-        return {
-            "nivel_riesgo": "DESCONOCIDO",
-            "puede_salir": "CON_PRECAUCION",
-            "ultimo_reporte": "No se pudo obtener información en tiempo real",
-            "distancia_aprox": "N/A",
-            "hora_reporte": "N/A",
-            "recomendacion": "Verifica iceout.org directamente para información actualizada"
-        }
+        # Si falla la API, retornar valores por defecto
+        return crear_respuesta_default()
     
     except Exception as e:
         logger.error(f"Error buscando actividad: {e}")
-        return {
-            "nivel_riesgo": "DESCONOCIDO",
-            "puede_salir": "CON_PRECAUCION",
-            "ultimo_reporte": "Error al buscar información",
-            "distancia_aprox": "N/A",
-            "hora_reporte": "N/A",
-            "recomendacion": "Verifica iceout.org directamente"
-        }
+        return crear_respuesta_default()
+
+def crear_respuesta_default():
+    return {
+        "hay_actividad": False,
+        "nivel_riesgo": "PRECAUCIÓN",
+        "puede_salir": "CON_CUIDADO",
+        "ultimo_reporte": "No se pudo verificar información en tiempo real. Por seguridad, consulta iceout.org directamente.",
+        "ubicacion_exacta": "N/A",
+        "distancia_cuadras": "N/A",
+        "hora_reporte": "N/A",
+        "tipo_operativo": "N/A",
+        "arrestos": "DESCONOCIDO",
+        "num_arrestos": "N/A",
+        "vehiculos": "N/A",
+        "recomendacion": "Mantente alerta. Verifica iceout.org y deportationtracker.live antes de salir.",
+        "fuente": "Sistema de respaldo"
+    }
 
 # Comando /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -156,12 +169,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 🛡️ *Bienvenido a la red de protección*
 
-Estoy aquí para ayudar a proteger a las 
-familias más vulnerables.
+Protegiendo a las familias más vulnerables.
 
-💪 *¿Qué puedo hacer por ti?*
+💪 *¿Qué necesitas?*
 
-Selecciona una opción abajo:
+Selecciona una opción:
     """
     
     if update.callback_query:
@@ -185,33 +197,31 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == 'volver_menu':
         await start(update, context)
     
-    elif query.data == 'menu_buscar':
+    elif query.data == 'buscar_directo':
+        context.user_data['esperando_direccion'] = True
         mensaje = """
-🔍 *BUSCAR ACTIVIDAD DE ICE*
+🎯 *BÚSQUEDA PRECISA DE ACTIVIDAD ICE*
 
-Selecciona tu estado o ciudad:
+Para darte información EXACTA, necesito tu ubicación.
+
+📍 *Escribe UNA de estas opciones:*
+
+1️⃣ *Dirección completa:*
+   `1234 Main Street, Los Angeles, CA`
+
+2️⃣ *Calles que cruzan:*
+   `5th Ave y Broadway, New York`
+
+3️⃣ *Zona o barrio:*
+   `Downtown Miami, FL`
+
+⚠️ *Mientras más preciso, mejor te puedo proteger.*
+
+✍️ Escribe tu ubicación ahora:
         """
         await query.message.edit_text(
             mensaje,
             parse_mode='Markdown',
-            reply_markup=crear_menu_estados()
-        )
-    
-    elif query.data.startswith('estado_'):
-        estado = query.data.replace('estado_', '').replace('newyork', 'New York')
-        await query.message.edit_text(
-            f"🔍 Buscando actividad REAL de ICE en *{estado.capitalize()}*...\n\n"
-            "⏳ Consultando reportes comunitarios...\n"
-            "_Esto puede tomar 10-15 segundos._",
-            parse_mode='Markdown'
-        )
-        await mostrar_info_estado(query.message, estado.capitalize())
-    
-    elif query.data == 'escribir_ubicacion':
-        context.user_data['esperando_ubicacion'] = True
-        await query.message.edit_text(
-            "✍️ Escribe el nombre de tu ciudad o estado:\n\n"
-            "Ejemplo: Jacksonville, Miami, Houston, etc.",
             reply_markup=crear_boton_volver()
         )
     
@@ -224,35 +234,68 @@ Selecciona tu estado o ciudad:
     elif query.data == 'menu_compartir':
         await mostrar_compartir(query.message)
 
-# Mostrar información del estado con datos REALES
-async def mostrar_info_estado(message, ubicacion):
+# Mostrar información con datos REALES
+async def mostrar_info_detallada(message, direccion):
     fecha_actual = datetime.now().strftime("%d de %B, %Y - %H:%M")
     
+    # Mensaje de búsqueda
+    await message.edit_text(
+        f"🔍 *BUSCANDO EN TIEMPO REAL*\n\n"
+        f"📍 {direccion}\n\n"
+        f"⏳ Consultando:\n"
+        f"• iceout.org\n"
+        f"• deportationtracker.live\n"
+        f"• Reportes comunitarios\n"
+        f"• Noticias locales\n\n"
+        f"_Esto puede tomar 15-20 segundos..._",
+        parse_mode='Markdown'
+    )
+    
     # Buscar actividad REAL
-    info = await buscar_actividad_real(ubicacion)
+    info = await buscar_actividad_real(direccion)
     
-    # Determinar emoji de riesgo
-    emoji_riesgo = {"BAJO": "🟢", "MEDIO": "🟡", "ALTO": "🔴", "DESCONOCIDO": "⚪"}.get(info['nivel_riesgo'], "⚪")
-    
-    # Determinar mensaje de seguridad
-    if info['puede_salir'] == "SI":
-        mensaje_seguridad = "✅ *PUEDES SALIR CON TRANQUILIDAD*"
-    elif info['puede_salir'] == "NO":
-        mensaje_seguridad = "🚨 *NO ES SEGURO SALIR AHORA*"
+    # Determinar emojis y mensajes
+    if info['nivel_riesgo'] == "SEGURO":
+        emoji_riesgo = "🟢"
+        mensaje_riesgo = "*ZONA SEGURA*"
+    elif info['nivel_riesgo'] == "PRECAUCIÓN":
+        emoji_riesgo = "🟡"
+        mensaje_riesgo = "*PRECAUCIÓN MODERADA*"
     else:
-        mensaje_seguridad = "⚠️ *SAL CON PRECAUCIÓN*"
+        emoji_riesgo = "🔴"
+        mensaje_riesgo = "*ZONA DE ALTO RIESGO*"
+    
+    if info['puede_salir'] == "SI":
+        mensaje_seguridad = "✅ *PUEDES SALIR TRANQUILO*"
+    elif info['puede_salir'] == "NO":
+        mensaje_seguridad = "🚨 *NO SALGAS AHORA - PELIGRO*"
+    else:
+        mensaje_seguridad = "⚠️ *SAL CON MÁXIMA PRECAUCIÓN*"
+    
+    # Mensaje de arrestos
+    if info['arrestos'] == "SÍ":
+        emoji_arrestos = "🚨"
+        texto_arrestos = f"*SÍ - {info['num_arrestos']} personas*"
+    elif info['arrestos'] == "NO":
+        emoji_arrestos = "✅"
+        texto_arrestos = "*NO se reportaron arrestos*"
+    else:
+        emoji_arrestos = "❓"
+        texto_arrestos = "*Información no confirmada*"
     
     resultado = f"""
 ╔═══════════════════════════════════════╗
-║     🔍 ANÁLISIS EN TIEMPO REAL 🔍     ║
+║   🔍 ANÁLISIS EN TIEMPO REAL 🔍      ║
 ╚═══════════════════════════════════════╝
 
-📍 *Ubicación:* {ubicacion}
+📍 *Tu ubicación:*
+{direccion}
+
 📅 *Consultado:* {fecha_actual}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-{emoji_riesgo} *NIVEL DE RIESGO:* {info['nivel_riesgo']}
+{emoji_riesgo} *NIVEL DE RIESGO:* {mensaje_riesgo}
 
 {mensaje_seguridad}
 
@@ -261,28 +304,40 @@ async def mostrar_info_estado(message, ubicacion):
 📊 *ÚLTIMO REPORTE:*
 {info['ultimo_reporte']}
 
-📏 *Distancia:* {info['distancia_aprox']}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📍 *Ubicación del operativo:*
+{info['ubicacion_exacta']}
+
+📏 *Distancia de ti:* {info['distancia_cuadras']}
+
 🕐 *Hora del reporte:* {info['hora_reporte']}
+
+🚔 *Tipo de operativo:* {info['tipo_operativo']}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-💡 *RECOMENDACIÓN:*
+{emoji_arrestos} *ARRESTOS:* {texto_arrestos}
+
+🚗 *Vehículos identificados:*
+{info['vehiculos']}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💡 *RECOMENDACIÓN URGENTE:*
 {info['recomendacion']}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📱 *RECURSOS EN TIEMPO REAL:*
+📱 *RECURSOS INMEDIATOS:*
 
-🗺️ *Mapa comunitario:* 
-   iceout.org/es
-
-📞 *Línea de emergencia:*
-   1-844-363-1423
-
-⚠️ *Reportar actividad:*
-   iceout.org
+🗺️ *Mapa en vivo:* iceout.org/es
+📞 *Emergencia:* 1-844-363-1423
+⚠️ *Reportar:* iceout.org
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ℹ️ *Fuente:* {info['fuente']}
 
 {MENSAJE_FINAL}
     """
@@ -309,7 +364,7 @@ async def mostrar_derechos(message):
 
 🔒 NO abras sin orden judicial
 📄 Pide ver la orden por debajo
-⚠️ La orden DEBE estar firmada
+⚠️ La orden DEBE estar firmada por un juez
 ❌ NO firmes nada sin abogado
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -342,18 +397,16 @@ async def mostrar_recursos(message):
 ║     📚 RECURSOS Y AYUDA 📚           ║
 ╚═══════════════════════════════════════╝
 
-*🗺️ MAPAS DE RASTREO:*
+*🗺️ MAPAS DE RASTREO EN VIVO:*
 
 - iceout.org/es
 - deportationtracker.live
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-*📞 LÍNEAS DE AYUDA:*
+*📞 LÍNEAS DE AYUDA 24/7:*
 
-- United We Dream: 
-  1-844-363-1423
-  
+- United We Dream: 1-844-363-1423
 - RAICES (Texas)
 - CHIRLA (California)
 
@@ -386,22 +439,23 @@ async def mostrar_compartir(message):
 ║      📢 COMPARTE ESTE BOT 📢         ║
 ╚═══════════════════════════════════════╝
 
-🤖 *Nombre del bot:* @{bot_username}
+🤖 *Bot:* @{bot_username}
 
-Copia y envía este mensaje:
+📋 *Copia y envía:*
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🚨 *¡ALERTA COMUNITARIA!* 🚨
+🚨 *PROTEGE A TU COMUNIDAD* 🚨
 
-Usa este bot para:
-✅ Rastrear actividad de ICE
-✅ Conocer tus derechos
-✅ Acceder a recursos de ayuda
+Bot de rastreo ICE en tiempo real:
+@{bot_username}
 
-🤖 Bot: @{bot_username}
+✅ Ubicaciones exactas
+✅ Reportes al instante
+✅ Información de arrestos
+✅ Mapas en vivo
 
-🛡️ Protege a tu familia
+🛡️ Compártelo AHORA
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -411,26 +465,26 @@ Usa este bot para:
 
 # Manejador de mensajes de texto
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get('esperando_ubicacion'):
-        context.user_data['esperando_ubicacion'] = False
-        ubicacion = update.message.text
-        await update.message.reply_text(
-            f"🔍 Buscando actividad REAL de ICE en *{ubicacion}*...\n\n"
-            "⏳ Consultando reportes comunitarios...\n"
-            "_Esto puede tomar 10-15 segundos._",
+    if context.user_data.get('esperando_direccion'):
+        context.user_data['esperando_direccion'] = False
+        direccion = update.message.text
+        
+        # Crear mensaje temporal
+        temp_msg = await update.message.reply_text(
+            "🔍 Iniciando búsqueda...",
             parse_mode='Markdown'
         )
-        # Crear un mensaje temporal para editar
-        temp_msg = await update.message.reply_text("Analizando...")
-        await mostrar_info_estado(temp_msg, ubicacion)
+        
+        await mostrar_info_detallada(temp_msg, direccion)
         return
     
     mensaje = update.message.text.lower()
     
-    if any(palabra in mensaje for palabra in ['ice', 'redada', 'operativo', 'migra', 'checkpoint']):
+    if any(palabra in mensaje for palabra in ['ice', 'redada', 'operativo', 'migra', 'checkpoint', 'arresto']):
         await update.message.reply_text(
             "⚠️ *ALERTA DETECTADA*\n\n"
-            "Usa los botones para buscar información:",
+            "¿Necesitas información urgente?\n\n"
+            "Usa el botón para buscar:",
             parse_mode='Markdown',
             reply_markup=crear_menu_principal()
         )
@@ -444,7 +498,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Función principal
 def main():
     if BOT_TOKEN == "PEGA_TU_TOKEN_AQUI":
-        print("❌ ERROR: Debes pegar tu token en el código.")
+        print("❌ ERROR: Debes pegar tu token.")
         return
     
     application = Application.builder().token(BOT_TOKEN).build()
@@ -454,15 +508,15 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     print("╔══════════════════════════════════════╗")
-    print("║  ✅ BOT INICIADO CORRECTAMENTE ✅    ║")
+    print("║  ✅ BOT ACTIVADO - MODO AVANZADO ✅  ║")
     print("║  🚨 EL GITANO ESTÁ CON USTEDES 🚨   ║")
-    print("║     🔍 RASTREAR ICE 🔍               ║")
+    print("║  🔍 RASTREO EN TIEMPO REAL 🔍       ║")
     print("╚══════════════════════════════════════╝")
-    print("\n💙 Protegiendo a nuestra comunidad...")
-    print("⚠️ Presiona Ctrl+C para detener\n")
+    print("\n💙 Protección activada 24/7...")
+    print("🌐 Buscando en toda la red...")
+    print("⚠️ Ctrl+C para detener\n")
     
     application.run_polling()
 
 if __name__ == '__main__':
-
     main()
