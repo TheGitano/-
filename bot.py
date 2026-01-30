@@ -14,7 +14,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # TU TOKEN AQUÍ
-BOT_TOKEN = "PEGA_TU_TOKEN_AQUI"
+BOT_TOKEN = "8287248635:AAHVABfsWcqh7t6BuF0oc3DGjd3gF7GAmMQ"
 
 # Banner
 BANNER = """
@@ -489,3 +489,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
